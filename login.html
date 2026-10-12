@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Đăng nhập hệ thống</title>
+<link rel="stylesheet" href="login.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#dc2626">
+</head>
+
+<body>
+
+<div class="login-container">
+
+<h1>Hệ thống quản lý vi phạm</h1>
+<p class="sub">Chọn cơ sở và nhập tên người nhập dữ liệu</p>
+
+<div class="coso-label">Cơ sở của bạn:</div>
+<div class="coso-row">
+  <button type="button" class="coso-btn" id="btnCVA" onclick="chonCoso('Chu Văn An')">Chu Văn An</button>
+  <button type="button" class="coso-btn" id="btnMC" onclick="chonCoso('Mạc Cửu')">Mạc Cửu</button>
+</div>
+
+<input id="nameInput" placeholder="Nhập tên của bạn">
+
+<button class="enter-btn" onclick="saveName()">Vào hệ thống</button>
+
+</div>
+
+<script>
+let coso = localStorage.getItem("coso") || "";
+
+function chonCoso(c){
+    coso = c;
+    localStorage.setItem("coso", c);
+    document.getElementById("btnCVA").classList.toggle("selected", c === "Chu Văn An");
+    document.getElementById("btnMC").classList.toggle("selected", c === "Mạc Cửu");
+}
+
+// Đã chọn cơ sở trước đó thì hiện sẵn
+if (coso) chonCoso(coso);
+
+function saveName(){
+    const name = document.getElementById("nameInput").value.trim();
+
+    if(!coso){
+        alert("Vui lòng chọn cơ sở (Chu Văn An hoặc Mạc Cửu)");
+        return;
+    }
+
+    if(!name){
+        alert("Vui lòng nhập tên");
+        return;
+    }
+
+    localStorage.setItem("nguoiNhap", name);
+    window.location.href="index.html";
+}
+</script>
+
+<!-- PWA: đăng ký service worker (cài app / mở nhanh) -->
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js').catch(function () {});
+}
+</script>
+
+</body>
+</html>
