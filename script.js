@@ -83,7 +83,8 @@ const VIOLATION_TYPES = [
   "Sai đồng phục",
   "Không thẻ sinh viên",
   "Vắng có phép",
-  "Vắng không phép"
+  "Vắng không phép",
+  "Vắng chào cờ"
 ];
 
 
@@ -126,12 +127,17 @@ function aggregateOne(v) {
     result[type] = 0;
   });
 
+  // các lỗi KHÁC (gõ tay, không thuộc 7 loại chuẩn)
+  result.khac = [];
+
   // tách lỗi
   const list = String(v.vipham || "").split(",").map(x => x.trim()).filter(Boolean);
 
   list.forEach(l => {
-    if (result[l] !== undefined) {
+    if (VIOLATION_TYPES.includes(l)) {
       result[l]++;
+    } else {
+      result.khac.push(l);
     }
   });
 
@@ -151,12 +157,27 @@ function groupViolations(data) {
       VIOLATION_TYPES.forEach(t => {
         map[key][t] += temp[t];
       });
+      map[key].khac.push(...temp.khac);
       map[key].tong += temp.tong;
     }
   });
 
   return Object.values(map);
 }
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Cột "Chi tiết khác": tên các lỗi gõ tay (cột "Khác" chỉ chứa số để Excel cộng được)
+function khacNamesHtml(khac) {
+  const arr = khac || [];
+  return arr.length ? '<span class="khac-names">' + escapeHtml(arr.join(", ")) + "</span>" : "";
+}
+
 function renderTable(list) {
   const tbody = document.getElementById("calendarViolationList");
 
@@ -180,6 +201,9 @@ function renderTable(list) {
       <td>${v["Không thẻ sinh viên"]}</td>
       <td>${v["Vắng có phép"]}</td>
       <td>${v["Vắng không phép"]}</td>
+      <td>${v["Vắng chào cờ"]}</td>
+      <td>${(v.khac || []).length}</td>
+      <td class="khac-cell">${khacNamesHtml(v.khac)}</td>
       <td><b>${v.tong}</b></td>
     `;
 
@@ -321,6 +345,23 @@ function clearSelection() {
 
 document.getElementById("selectAllMonth").addEventListener("click", selectAllMonth);
 document.getElementById("clearSelection").addEventListener("click", clearSelection);
+// Excel: đổi ô "chữ số" thành số thật để dùng được SUM / công thức
+function coerceNumericCells(ws) {
+  Object.keys(ws).forEach(addr => {
+    if (addr.charAt(0) === "!") return;
+    const cell = ws[addr];
+    if (!cell || cell.t !== "s" || typeof cell.v !== "string") return;
+    const s = cell.v.trim();
+    // chỉ nhận số thuần (tránh đổi nhầm mã SV / ngày / lớp)
+    if (/^-?\d{1,9}(\.\d+)?$/.test(s)) {
+      cell.t = "n";
+      cell.v = Number(s);
+      delete cell.w;
+    }
+  });
+  return ws;
+}
+
 document.getElementById("exportExcelBtn").addEventListener("click", () => {
     const table = document.getElementById("violationTable");
 
@@ -334,7 +375,7 @@ document.getElementById("exportExcelBtn").addEventListener("click", () => {
         aoa.push(Array.from(tr.children).map(td => td.innerText.trim()));
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const ws = coerceNumericCells(XLSX.utils.aoa_to_sheet(aoa));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Vi phạm");
 
@@ -356,7 +397,8 @@ function groupMultiDays(data) {
         lop: v.lop,
         khoa: v.khoa,
         khoaHoc: v.khoaHoc,
-        tong: 0
+        tong: 0,
+        khac: []
       };
 
       // init = 0
@@ -369,6 +411,7 @@ function groupMultiDays(data) {
       map[key][t] += temp[t];
     });
 
+    map[key].khac.push(...temp.khac);
     map[key].tong += temp.tong;
   });
 
@@ -395,6 +438,9 @@ function renderMergeTable(list) {
       <td>${v["Không thẻ sinh viên"]}</td>
       <td>${v["Vắng có phép"]}</td>
       <td>${v["Vắng không phép"]}</td>
+      <td>${v["Vắng chào cờ"]}</td>
+      <td>${(v.khac || []).length}</td>
+      <td class="khac-cell">${khacNamesHtml(v.khac)}</td>
       <td><b>${v.tong}</b></td>
     `;
 
@@ -449,7 +495,7 @@ document.getElementById("exportExcelBtn2").addEventListener("click", () => {
         aoa.push(Array.from(tr.children).map(td => td.innerText.trim()));
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const ws = coerceNumericCells(XLSX.utils.aoa_to_sheet(aoa));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Bảng gộp");
 

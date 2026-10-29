@@ -693,6 +693,22 @@ function makeExcelRows(list) {
   }));
 }
 
+// Excel: đổi ô "chữ số" thành số thật để dùng được SUM / công thức
+function coerceNumericCells(ws) {
+  Object.keys(ws).forEach(addr => {
+    if (addr.charAt(0) === "!") return;
+    const cell = ws[addr];
+    if (!cell || cell.t !== "s" || typeof cell.v !== "string") return;
+    const s = cell.v.trim();
+    if (/^-?\d{1,9}(\.\d+)?$/.test(s)) {
+      cell.t = "n";
+      cell.v = Number(s);
+      delete cell.w;
+    }
+  });
+  return ws;
+}
+
 function exportExcel(list, emptyMsg, fileNameSuffix) {
   if (!list.length) {
     alert(emptyMsg || "Không có dữ liệu để xuất!");
@@ -705,7 +721,7 @@ function exportExcel(list, emptyMsg, fileNameSuffix) {
   aoa.push(columns);
   rows.forEach(r => aoa.push(columns.map(c => r[c])));
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws = coerceNumericCells(XLSX.utils.aoa_to_sheet(aoa));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Vi phạm");
   const fileName = "vi_pham_" + COSO.replace(" ", "_") + "_" + currentFilterDate + (fileNameSuffix || "") + ".xlsx";

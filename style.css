@@ -117,7 +117,7 @@ body {
 /* Lịch vi phạm – cam */
 .btn-calendar {
   background: #ea0cab !important;
-  box-shadow: 0 2px 8px rgba(152, 24, 124, 0.173);
+  box-shadow: 0 2px 8px rgba(241, 43, 198, 0.173);
   color: #ffffff !important;
 }
 .btn-calendar:hover {
@@ -185,6 +185,8 @@ body {
   padding: 20px 24px 40px;
   max-width: 1400px;
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Lịch nằm trên, căn giữa, gọn */
@@ -318,6 +320,8 @@ table.calendar-table td.active {
 /* Phần chi tiết / bảng phía dưới */
 #details {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   background: var(--card);
   border-radius: 16px;
   padding: 20px 24px 28px;
@@ -344,24 +348,93 @@ table.calendar-table td.active {
 /* Bảng vi phạm */
 .violation-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-top: 8px;
-  font-size: 13.5px;
+  font-size: 12.5px;
   background: white;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: clip;
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
 .violation-table thead {
   background: var(--primary);
   color: white;
 }
+/* Header dính phía trên khi cuộn (cả bảng chi tiết + bảng gộp) */
+.violation-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--primary);
+  box-shadow: inset 0 -2px 0 rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.12);
+}
+#mergeTable thead th {
+  background: #d97706;
+}
+.violation-table thead th:first-child {
+  border-top-left-radius: 12px;
+}
+.violation-table thead th:last-child {
+  border-top-right-radius: 12px;
+}
 .violation-table th,
 .violation-table td {
-  padding: 10px 8px;
+  padding: 8px 5px;
+  box-sizing: border-box;
   text-align: center;
+  vertical-align: middle;
   border-bottom: 1px solid var(--border);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
+.violation-table th {
+  font-size: 12px;
+  font-weight: 600;
+}
+/* Độ rộng cột — cân đối vừa khung, không tràn sang phải */
+.violation-table th:nth-child(1),
+.violation-table td:nth-child(1) { width: 38px; }   /* STT */
+.violation-table th:nth-child(2),
+.violation-table td:nth-child(2) { width: 86px; }   /* Mã SV */
+.violation-table th:nth-child(3),
+.violation-table td:nth-child(3) { width: 106px; }  /* Tên */
+.violation-table th:nth-child(4),
+.violation-table td:nth-child(4) { width: 108px; }  /* Lớp */
+.violation-table th:nth-child(5),
+.violation-table td:nth-child(5) { width: 44px; }   /* Khoá */
+.violation-table th:nth-child(6),
+.violation-table td:nth-child(6) { width: 90px; }   /* Khoa */
+
+/* Bảng chi tiết (có cột Ngày) */
+#violationTable th:nth-child(7),  #violationTable td:nth-child(7)  { width: 74px; } /* Ngày */
+#violationTable th:nth-child(8),  #violationTable td:nth-child(8)  { width: 48px; } /* Mang dép */
+#violationTable th:nth-child(9),  #violationTable td:nth-child(9)  { width: 46px; } /* Đi trễ */
+#violationTable th:nth-child(10), #violationTable td:nth-child(10) { width: 50px; } /* Hút thuốc */
+#violationTable th:nth-child(11), #violationTable td:nth-child(11) { width: 56px; } /* Sai đồng phục */
+#violationTable th:nth-child(12), #violationTable td:nth-child(12) { width: 56px; } /* Không thẻ SV */
+#violationTable th:nth-child(13), #violationTable td:nth-child(13) { width: 54px; } /* Vắng có phép */
+#violationTable th:nth-child(14), #violationTable td:nth-child(14) { width: 60px; } /* Vắng không phép */
+#violationTable th:nth-child(15), #violationTable td:nth-child(15) { width: 56px; } /* Vắng chào cờ */
+
+/* Bảng gộp (không có cột Ngày) */
+#mergeTable th:nth-child(7),  #mergeTable td:nth-child(7)  { width: 48px; } /* Mang dép */
+#mergeTable th:nth-child(8),  #mergeTable td:nth-child(8)  { width: 46px; } /* Đi trễ */
+#mergeTable th:nth-child(9),  #mergeTable td:nth-child(9)  { width: 50px; } /* Hút thuốc */
+#mergeTable th:nth-child(10), #mergeTable td:nth-child(10) { width: 56px; } /* Sai đồng phục */
+#mergeTable th:nth-child(11), #mergeTable td:nth-child(11) { width: 56px; } /* Không thẻ SV */
+#mergeTable th:nth-child(12), #mergeTable td:nth-child(12) { width: 54px; } /* Vắng có phép */
+#mergeTable th:nth-child(13), #mergeTable td:nth-child(13) { width: 60px; } /* Vắng không phép */
+#mergeTable th:nth-child(14), #mergeTable td:nth-child(14) { width: 56px; } /* Vắng chào cờ */
+
+/* 3 cột cuối */
+.violation-table th:nth-last-child(3),
+.violation-table td:nth-last-child(3) { width: 40px; }  /* Khác */
+.violation-table th:nth-last-child(2),
+.violation-table td:nth-last-child(2) { width: 108px; } /* Chi tiết khác */
+.violation-table th:last-child,
+.violation-table td:last-child { width: 50px; }         /* Tổng */
 .violation-table tbody tr:nth-child(even) {
   background: #f8fafc;
 }
@@ -371,6 +444,21 @@ table.calendar-table td.active {
 .violation-table td:last-child {
   font-weight: 700;
   color: #dc2626;
+}
+
+/* Cột "Chi tiết khác": tên lỗi gõ tay */
+.violation-table td.khac-cell {
+  white-space: normal;
+}
+.khac-names {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: #b45309;
+  white-space: normal;
+  word-break: break-word;
 }
 
 /* Bảng gộp */
@@ -612,15 +700,24 @@ table.calendar-table td.active {
 /* Bọc bảng — vuốt ngang trên mobile */
 .table-scroll {
   width: 100%;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 78vh;
   -webkit-overflow-scrolling: touch;
   margin-bottom: 16px;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
+/* Màn hình đủ rộng: bảng vừa khung -> bỏ khung cuộn để header dính theo trang */
+@media (min-width: 1200px) {
+  .table-scroll {
+    overflow: visible;
+    max-height: none;
+  }
+}
+
 .table-scroll table {
-  min-width: 640px; /* đủ chỗ cho mọi cột, không bị cắt */
+  min-width: 980px; /* đủ chỗ cho mọi cột, không bị cắt */
   width: 100%;
 }
 
@@ -640,7 +737,7 @@ table.calendar-table td.active {
   /* Không cần bảng quá rộng nữa */
   #violationTable,
   #mergeTable {
-    min-width: 0 !important;
+    min-width: 900px !important;
     width: 100% !important;
   }
 
@@ -811,10 +908,10 @@ table.calendar-table td.active {
   #violationTable,
   #mergeTable {
     border-radius: 10px !important;
-    overflow: hidden !important;
+    overflow: clip !important;
     border-collapse: separate !important;
     border-spacing: 0 !important;
-    min-width: 0 !important;
+    min-width: 900px !important;
     width: 100% !important;
   }
 

@@ -1,5 +1,5 @@
 /* Service Worker – Quản lí vi phạm (PWA): cache trang để mở nhanh + chạy khi không có mạng */
-const CACHE = "quan-li-vi-pham-v4";
+const CACHE = "quan-li-vi-pham-v12";
 
 const ASSETS = [
   "./",
