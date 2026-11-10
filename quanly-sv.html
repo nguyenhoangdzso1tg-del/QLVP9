@@ -162,7 +162,15 @@
 
     <div class="card">
       <h2 style="margin:0 0 8px;font-size:1.05rem;">Tìm / xóa từng sinh viên</h2>
-      <input id="search" placeholder="Gõ mã SV, tên hoặc lớp..." style="margin-bottom:12px;">
+      <input id="search" placeholder="Gõ mã SV hoặc tên (từ đầu)..." style="margin-bottom:12px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <button type="button" class="del" id="btnLoadAll" style="background:#475569;padding:8px 12px;">
+          Tải toàn bộ danh sách (tốn ~5.000 lượt đọc)
+        </button>
+        <button type="button" class="del" id="btnRebuildTree" style="background:#0f766e;padding:8px 12px;">
+          Cập nhật lại cây lớp / khóa
+        </button>
+      </div>
       <div style="max-height:280px;overflow:auto;">
         <table>
           <thead>
@@ -188,14 +196,31 @@
       doc,
       setDoc,
       deleteDoc,
-      getDocs
+      getDocs,
+      query,
+      where,
+      orderBy,
+      limit,
+      writeBatch
     } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+    import {
+      getStudentTree,
+      searchStudents,
+      loadAllStudents,
+      rebuildStudentTree,
+      addStudentToTree,
+      removeStudentFromTree,
+      removeClassFromTree
+    } from "./student-data.js";
 
     if (!localStorage.getItem("nguoiNhap")) {
       window.location.href = "login.html";
     }
 
-    let allStudents = [];
+    let currentStudents = [];   // kết quả đang hiển thị
+    let allLoaded = false;      // true khi admin đã bấm "Tải toàn bộ"
+    let searchTimer = null;
+    let treeCache = {};         // cây khoa → khóa → lớp (từ meta/studentTree)
 
     function showMsg(text, ok) {
       const el = document.getElementById("msg");
@@ -207,24 +232,40 @@
       return [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
     }
 
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[c]));
+    }
+
     function escapeAttr(s) {
-      return String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;");
+      return esc(s);
     }
 
     function fillDatalists() {
-      const khoas = uniqueSorted(allStudents.map(s => s.khoa));
-      const khoaHocs = uniqueSorted(allStudents.map(s => s.khoaHoc));
-      const lops = uniqueSorted(allStudents.map(s => s.lop));
+      const paths = [];
+      Object.keys(treeCache).forEach((khoa) => {
+        Object.keys(treeCache[khoa] || {}).forEach((khoaHoc) => {
+          Object.keys(treeCache[khoa][khoaHoc] || {}).forEach((lop) => {
+            paths.push({ khoa, khoaHoc, lop });
+          });
+        });
+      });
+
+      const khoas = uniqueSorted(paths.map((x) => x.khoa));
+      const khoaHocs = uniqueSorted(paths.map((x) => x.khoaHoc));
+      const lops = uniqueSorted(paths.map((x) => x.lop));
 
       document.getElementById("listKhoa").innerHTML =
-        khoas.map(k => `<option value="${escapeAttr(k)}">`).join("");
+        khoas.map((k) => `<option value="${escapeAttr(k)}">`).join("");
       document.getElementById("listKhoaHoc").innerHTML =
-        khoaHocs.map(k => `<option value="${escapeAttr(k)}">`).join("");
+        khoaHocs.map((k) => `<option value="${escapeAttr(k)}">`).join("");
       document.getElementById("listLop").innerHTML =
-        lops.map(k => `<option value="${escapeAttr(k)}">`).join("");
+        lops.map((k) => `<option value="${escapeAttr(k)}">`).join("");
     }
 
     function normText(s) {
@@ -236,40 +277,67 @@
         .trim();
     }
 
+    function normalizeStudent(x, id) {
+      return {
+        maSV: x.maSV || id,
+        tenSV: x.tenSV || "",
+        khoa: x.khoa || "",
+        khoaHoc: x.khoaHoc || "",
+        lop: x.lop || ""
+      };
+    }
+
     function renderTable(filter = "") {
-      const kw = filter.trim();
-      let list = allStudents;
-      if (kw) {
-        const tokens = normText(kw).split(" ").filter(Boolean);
-        list = allStudents.filter(s => {
+      let list = currentStudents;
+
+      // Khi đã tải toàn bộ thì lọc tại máy (không tốn thêm lượt đọc)
+      if (filter.trim() && allLoaded) {
+        const tokens = normText(filter).split(" ").filter(Boolean);
+        list = currentStudents.filter((s) => {
           const hay = normText([s.maSV, s.tenSV, s.lop, s.khoaHoc, s.khoa].join(" "));
-          return tokens.every(t => hay.includes(t));
+          return tokens.every((t) => hay.includes(t));
         });
       }
+
       const show = list.slice(0, 50);
       const tbody = document.getElementById("tbody");
-      tbody.innerHTML = show.map(s => `
+
+      tbody.innerHTML = show.map((s) => `
         <tr>
-          <td>${s.maSV}</td>
-          <td>${s.tenSV}</td>
-          <td>${s.lop || ""}</td>
-          <td>${s.khoaHoc || ""}</td>
+          <td>${esc(s.maSV)}</td>
+          <td>${esc(s.tenSV)}</td>
+          <td>${esc(s.lop || "")}</td>
+          <td>${esc(s.khoaHoc || "")}</td>
           <td><button type="button" class="del" data-id="${escapeAttr(s.maSV)}">Xóa</button></td>
         </tr>
       `).join("");
 
       document.getElementById("countLabel").textContent =
-        kw
-          ? `Hiện ${show.length}/${list.length} (lọc). Tổng hệ thống: ${allStudents.length} SV`
-          : `Hiện ${show.length} sinh viên. Tổng hệ thống: ${allStudents.length} SV`;
+        allLoaded
+          ? `Hiện ${show.length}/${list.length} (đã tải toàn bộ ${currentStudents.length} SV)`
+          : `Hiện ${show.length} sinh viên. Gõ từ đầu tên/mã SV để tìm nhanh.`;
 
-      tbody.querySelectorAll(".del").forEach(btn => {
+      tbody.querySelectorAll(".del").forEach((btn) => {
         btn.onclick = async () => {
           const id = btn.dataset.id;
+          const found = currentStudents.find((s) => s.maSV === id);
+
           if (!confirm("Xóa SV " + id + " khỏi danh sách?")) return;
+
           try {
             await deleteDoc(doc(db, "students", id));
-            allStudents = allStudents.filter(s => s.maSV !== id);
+
+            currentStudents = currentStudents.filter((s) => s.maSV !== id);
+
+            if (found) {
+              treeCache = await removeStudentFromTree(
+                found.khoa,
+                found.khoaHoc,
+                found.lop,
+                1
+              );
+            }
+
             fillDatalists();
             renderTable(document.getElementById("search").value);
             showMsg("Đã xóa " + id, true);
@@ -281,26 +349,99 @@
       });
     }
 
-    async function loadAll() {
-      const snap = await getDocs(collection(db, "students"));
-      allStudents = [];
-      snap.forEach(d => {
-        const x = d.data();
-        allStudents.push({
-          maSV: x.maSV || d.id,
-          tenSV: x.tenSV || "",
-          khoa: x.khoa || "",
-          khoaHoc: x.khoaHoc || "",
-          lop: x.lop || ""
-        });
-      });
-      allStudents.sort((a, b) => (a.maSV || "").localeCompare(b.maSV || ""));
-      fillDatalists();
+    async function loadFirst50() {
+      // Chỉ đọc 50 SV đầu tiên (theo mã SV); muốn xem tất cả thì bấm "Tải toàn bộ".
+      const snap = await getDocs(query(
+        collection(db, "students"),
+        orderBy("maSV"),
+        limit(50)
+      ));
+      currentStudents = snap.docs.map((d) => normalizeStudent(d.data(), d.id));
+      currentStudents.sort((a, b) =>
+        String(a.maSV || "").localeCompare(String(b.maSV || ""), "vi")
+      );
       renderTable();
     }
 
+    async function init() {
+      treeCache = await getStudentTree();
+      fillDatalists();
+      await loadFirst50();
+    }
+
     document.getElementById("search").oninput = (e) => {
-      renderTable(e.target.value);
+      clearTimeout(searchTimer);
+      const kw = e.target.value;
+
+      searchTimer = setTimeout(async () => {
+        try {
+          if (!kw.trim()) {
+            allLoaded = false;
+            await loadFirst50();
+            return;
+          }
+
+          if (allLoaded) {
+            renderTable(kw);
+            return;
+          }
+
+          // Query prefix + limit 50: chỉ đọc đúng phần cần tìm
+          currentStudents = await searchStudents(kw, 50);
+          renderTable();
+        } catch (err) {
+          console.error(err);
+          document.getElementById("countLabel").textContent =
+            "Lỗi tìm kiếm: " + (err.message || err);
+        }
+      }, 400);
+    };
+
+    document.getElementById("btnLoadAll").onclick = async () => {
+      if (!confirm(
+        "Tải toàn bộ danh sách sinh viên về máy?\n" +
+        "Việc này tốn khoảng 5.000 lượt đọc Firestore (chỉ nên dùng khi cần).\n\nTiếp tục?"
+      )) return;
+
+      const btn = document.getElementById("btnLoadAll");
+      btn.disabled = true;
+      btn.textContent = "Đang tải toàn bộ...";
+
+      try {
+        currentStudents = await loadAllStudents({ force: true });
+        allLoaded = true;
+        renderTable(document.getElementById("search").value);
+        showMsg(`Đã tải ${currentStudents.length} sinh viên.`, true);
+      } catch (e) {
+        console.error(e);
+        showMsg("Lỗi tải toàn bộ: " + e.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Tải toàn bộ danh sách (tốn ~5.000 lượt đọc)";
+      }
+    };
+
+    document.getElementById("btnRebuildTree").onclick = async () => {
+      if (!confirm(
+        "Quét lại toàn bộ students để cập nhật cây Khoa → Khóa → Lớp?\n" +
+        "Việc này tốn khoảng 5.000 lượt đọc (chỉ chạy khi dữ liệu lớp bị lệch).\n\nTiếp tục?"
+      )) return;
+
+      const btn = document.getElementById("btnRebuildTree");
+      btn.disabled = true;
+      btn.textContent = "Đang cập nhật...";
+
+      try {
+        treeCache = await rebuildStudentTree();
+        fillDatalists();
+        showMsg("Đã cập nhật lại cây Khoa → Khóa → Lớp.", true);
+      } catch (e) {
+        console.error(e);
+        showMsg("Lỗi cập nhật cây: " + e.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Cập nhật lại cây lớp / khóa";
+      }
     };
 
     document.getElementById("btnAdd").onclick = async () => {
@@ -317,19 +458,42 @@
 
       const btn = document.getElementById("btnAdd");
       btn.disabled = true;
+
       try {
+        const old = currentStudents.find((s) => s.maSV === maSV) || null;
+
         await setDoc(doc(db, "students", maSV), {
           maSV, tenSV, khoa, khoaHoc, lop
         });
 
-        const idx = allStudents.findIndex(s => s.maSV === maSV);
         const row = { maSV, tenSV, khoa, khoaHoc, lop };
-        if (idx >= 0) allStudents[idx] = row;
-        else allStudents.push(row);
+        const idx = currentStudents.findIndex((s) => s.maSV === maSV);
+
+        if (idx >= 0) currentStudents[idx] = row;
+        else currentStudents.push(row);
+
+        if (!old) {
+          treeCache = await addStudentToTree(khoa, khoaHoc, lop);
+        } else if (
+          old.khoa !== khoa ||
+          old.khoaHoc !== khoaHoc ||
+          old.lop !== lop
+        ) {
+          treeCache = await removeStudentFromTree(
+            old.khoa,
+            old.khoaHoc,
+            old.lop,
+            1
+          );
+          treeCache = await addStudentToTree(khoa, khoaHoc, lop);
+        }
 
         fillDatalists();
         renderTable(document.getElementById("search").value);
-        showMsg("Đã thêm/cập nhật: " + tenSV + " (" + maSV + ") — Lớp: " + lop, true);
+        showMsg(
+          "Đã thêm/cập nhật: " + tenSV + " (" + maSV + ") — Lớp: " + lop,
+          true
+        );
 
         document.getElementById("maSV").value = "";
         document.getElementById("tenSV").value = "";
@@ -338,6 +502,7 @@
         console.error(e);
         showMsg("Lỗi: " + e.message, false);
       }
+
       btn.disabled = false;
     };
 
@@ -353,34 +518,73 @@
         return;
       }
 
-      let targets = allStudents.filter(s =>
-        s.khoa === khoa && s.khoaHoc === khoaHoc
-      );
-      if (lop) {
-        targets = targets.filter(s => s.lop === lop);
-      }
-
-      if (targets.length === 0) {
-        msgDel.className = "msg err";
-        msgDel.textContent = "Không tìm thấy SV nào khớp.";
-        return;
-      }
-
-      const scope = lop
-        ? `lớp "${lop}" (khóa ${khoaHoc})`
-        : `cả khóa "${khoaHoc}"`;
-      if (!confirm(`Xóa ${targets.length} SV thuộc ${scope}?\nKhông hoàn tác được.`)) return;
-
       const btn = document.getElementById("btnDelClass");
       btn.disabled = true;
+
       try {
-        for (const s of targets) {
-          await deleteDoc(doc(db, "students", s.maSV));
+        // Chỉ đọc đúng lớp/khóa cần xóa (không quét toàn bộ 5.000 SV)
+        let snap;
+
+        if (lop) {
+          snap = await getDocs(query(
+            collection(db, "students"),
+            where("lop", "==", lop),
+            limit(1000)
+          ));
+        } else {
+          snap = await getDocs(query(
+            collection(db, "students"),
+            where("khoaHoc", "==", khoaHoc),
+            limit(1000)
+          ));
         }
-        const ids = new Set(targets.map(t => t.maSV));
-        allStudents = allStudents.filter(s => !ids.has(s.maSV));
+
+        const targets = [];
+        snap.forEach((d) => {
+          const s = d.data() || {};
+          if (String(s.khoa || "") !== khoa) return;
+          if (String(s.khoaHoc || "") !== khoaHoc) return;
+          if (lop && String(s.lop || "") !== lop) return;
+          targets.push({ id: d.id, ...s });
+        });
+
+        if (targets.length === 0) {
+          msgDel.className = "msg err";
+          msgDel.textContent = "Không tìm thấy SV nào khớp.";
+          return;
+        }
+
+        const scope = lop
+          ? `lớp "${lop}" (khóa ${khoaHoc})`
+          : `cả khóa "${khoaHoc}"`;
+
+        if (!confirm(`Xóa ${targets.length} SV thuộc ${scope}?\nKhông hoàn tác được.`)) {
+          return;
+        }
+
+        const BATCH = 400;
+        for (let i = 0; i < targets.length; i += BATCH) {
+          const chunk = targets.slice(i, i + BATCH);
+          const batch = writeBatch(db);
+          chunk.forEach((t) => batch.delete(doc(db, "students", t.id)));
+          await batch.commit();
+        }
+
+        const ids = new Set();
+        targets.forEach((t) => {
+          ids.add(t.id);
+          if (t.maSV) ids.add(t.maSV);
+        });
+
+        currentStudents = currentStudents.filter((s) => !ids.has(s.maSV));
+
+        treeCache = lop
+          ? await removeClassFromTree(khoa, khoaHoc, lop)
+          : await removeClassFromTree(khoa, khoaHoc, "");
+
         fillDatalists();
         renderTable(document.getElementById("search").value);
+
         msgDel.className = "msg ok";
         msgDel.textContent = "Đã xóa " + targets.length + " SV.";
         document.getElementById("delLop").value = "";
@@ -388,11 +592,12 @@
         console.error(e);
         msgDel.className = "msg err";
         msgDel.textContent = "Lỗi: " + e.message;
+      } finally {
+        btn.disabled = false;
       }
-      btn.disabled = false;
     };
 
-    loadAll().catch(e => {
+    init().catch((e) => {
       console.error(e);
       document.getElementById("countLabel").textContent = "Lỗi tải: " + e.message;
     });

@@ -6,6 +6,7 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
+
 function getWeekNumber(date) {
   const d = new Date(Date.UTC(
     date.getFullYear(),
@@ -49,6 +50,8 @@ export async function sendViolations(violationList) {
         vipham: v["Vi phạm"],
 
         createdAt: serverTimestamp(),
+
+        
 
         // ✅ PHÂN LOẠI ĐÚNG (dùng cho lịch vi phạm)
         year: selectedDate.getFullYear(),

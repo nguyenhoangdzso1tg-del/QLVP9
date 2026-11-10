@@ -4,7 +4,10 @@ import {
   collection,
   query,
   where,
-  getDocs
+  getDocs,
+  limit,
+  orderBy,
+  startAfter
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 /* ===== CƠ SỞ (Chu Văn An / Mạc Cửu) ===== */
@@ -12,6 +15,130 @@ const COSO_CVA = "Chu Văn An";
 const COSO_MC = "Mạc Cửu";
 const COSO = localStorage.getItem("coso") || "";
 if (!COSO) window.location.href = "login.html";
+
+/* ===== CACHE DỮ LIỆU THEO NGÀY (tránh đọc lại Firestore khi bấm qua lại) ===== */
+const DAY_CACHE_PREFIX = "vp_day_v1_";
+const DAY_CACHE_TTL = 10 * 60 * 1000; // 10 phút
+const dateMemory = new Map();
+
+function dayKey(d) {
+  return (
+    d.year + "-" +
+    String(d.month).padStart(2, "0") + "-" +
+    String(d.day).padStart(2, "0")
+  );
+}
+
+function dayCacheKey(dateStr) {
+  return DAY_CACHE_PREFIX + encodeURIComponent(COSO) + "_" + dateStr;
+}
+
+function readDayCache(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function writeDayCache(key, list) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ at: Date.now(), list }));
+  } catch {
+    /* localStorage đầy: vẫn dùng cache trong RAM */
+  }
+}
+
+function isFreshDay(entry) {
+  return !!(entry && entry.at && Date.now() - entry.at < DAY_CACHE_TTL);
+}
+
+async function fetchViolationsForDate(d, { force = false } = {}) {
+  const dateStr = dayKey(d);
+  const memKey = COSO + "|" + dateStr;
+
+  if (!force && dateMemory.has(memKey)) {
+    return dateMemory.get(memKey);
+  }
+
+  const key = dayCacheKey(dateStr);
+
+  if (!force) {
+    const cached = readDayCache(key);
+    if (isFreshDay(cached) && Array.isArray(cached.list)) {
+      dateMemory.set(memKey, cached.list);
+      return cached.list;
+    }
+  }
+
+  const result = [];
+  let lastDoc = null;
+
+  while (true) {
+    const constraints = [
+      where("coso", "==", COSO),
+      where("ngay", "==", dateStr),
+      orderBy("ngay"),
+      limit(1000)
+    ];
+
+    if (lastDoc) {
+      constraints.push(startAfter(lastDoc));
+    }
+
+    const snap = await getDocs(
+      query(collection(db, "violations"), ...constraints)
+    );
+
+    snap.forEach((doc) => {
+      result.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+
+    if (snap.size < 1000) break;
+
+    lastDoc = snap.docs[snap.docs.length - 1];
+  }
+
+  dateMemory.set(memKey, result);
+  writeDayCache(key, result);
+
+  return result;
+}
+
+async function mapLimit(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let index = 0;
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const i = index++;
+        if (i >= items.length) return;
+        results[i] = await fn(items[i], i);
+      }
+    }
+  );
+
+  await Promise.all(workers);
+  return results;
+}
+
+async function getSelectedViolations({ force = false } = {}) {
+  if (selectedDates.length === 0) return [];
+
+  // Chỉ tải ngày CHƯA có trong cache; ngày đã tải thì dùng lại.
+  const lists = await mapLimit(
+    selectedDates,
+    5,
+    (d) => fetchViolationsForDate(d, { force })
+  );
+
+  return lists.flat();
+}
 
 
 // 2. Khởi tạo các biến cho lịch
@@ -188,12 +315,12 @@ function renderTable(list) {
 
     tr.innerHTML = `
       <td>${i + 1}</td>
-      <td>${v.maSV}</td> 
-      <td>${v.hoTen}</td>
-      <td>${v.lop}</td>
-      <td>${v.khoaHoc}</td>
-      <td>${v.khoa}</td>
-      <td>${v.ngay}</td>
+      <td>${escapeHtml(v.maSV)}</td>
+      <td>${escapeHtml(v.hoTen)}</td>
+      <td>${escapeHtml(v.lop)}</td>
+      <td>${escapeHtml(v.khoaHoc)}</td>
+      <td>${escapeHtml(v.khoa)}</td>
+      <td>${escapeHtml(v.ngay)}</td>
       <td>${v["Mang dép"]}</td>
       <td>${v["Đi trễ"]}</td>
       <td>${v["Hút thuốc"]}</td>
@@ -214,30 +341,16 @@ function renderTable(list) {
     "Tổng số lỗi: " + list.reduce((s, v) => s + v.tong, 0);
 }
 
-async function loadMultiDays() {
+async function loadMultiDays({ force = false } = {}) {
   if (selectedDates.length === 0) {
     document.getElementById("calendarViolationList").innerHTML = "";
     document.getElementById("totalCount").innerText = "";
     return;
   }
 
-  // Chạy song song các ngày để nhanh hơn (trước đây chạy tuần tự)
-  const queries = selectedDates.map(d =>
-    query(
-      collection(db, "violations"),
-      where("coso", "==", COSO),
-      where("year", "==", d.year),
-      where("month", "==", d.month),
-      where("day", "==", d.day)
-    )
-  );
-
   try {
-    const snaps = await Promise.all(queries.map(q => getDocs(q)));
-
-    const allData = [];
-    snaps.forEach(snap => snap.forEach(doc => allData.push(doc.data())));
-
+    // Chỉ tải ngày chưa có cache; ngày đã tải dùng lại (không tốn lượt đọc)
+    const allData = await getSelectedViolations({ force });
     const grouped = groupViolations(allData);
     renderTable(grouped);
   } catch (e) {
@@ -271,8 +384,6 @@ function handleDateClick(cell) {
     selectedDates.push({ day, month, year });
     cell.classList.add("active");
   }
-
-  console.log("Selected dates:", selectedDates);
 
   // Load dữ liệu theo nhiều ngày
   updateSelectedDaysLabel();
@@ -345,6 +456,23 @@ function clearSelection() {
 
 document.getElementById("selectAllMonth").addEventListener("click", selectAllMonth);
 document.getElementById("clearSelection").addEventListener("click", clearSelection);
+
+const refreshCalendarBtn = document.getElementById("refreshCalendar");
+if (refreshCalendarBtn) {
+  refreshCalendarBtn.addEventListener("click", () => {
+    // Xóa cache của các ngày đang chọn rồi tải lại từ Firebase
+    selectedDates.forEach((d) => {
+      const dateStr = dayKey(d);
+      dateMemory.delete(COSO + "|" + dateStr);
+      try {
+        localStorage.removeItem(dayCacheKey(dateStr));
+      } catch {
+        /* ignore */
+      }
+    });
+    loadMultiDays({ force: true });
+  });
+}
 // Excel: đổi ô "chữ số" thành số thật để dùng được SUM / công thức
 function coerceNumericCells(ws) {
   Object.keys(ws).forEach(addr => {
@@ -426,11 +554,11 @@ function renderMergeTable(list) {
 
     tr.innerHTML = `
       <td>${i + 1}</td>
-      <td>${v.maSV}</td>
-      <td>${v.hoTen}</td>
-      <td>${v.lop}</td>
-      <td>${v.khoaHoc}</td>
-      <td>${v.khoa}</td>
+      <td>${escapeHtml(v.maSV)}</td>
+      <td>${escapeHtml(v.hoTen)}</td>
+      <td>${escapeHtml(v.lop)}</td>
+      <td>${escapeHtml(v.khoaHoc)}</td>
+      <td>${escapeHtml(v.khoa)}</td>
       <td>${v["Mang dép"]}</td>
       <td>${v["Đi trễ"]}</td>
       <td>${v["Hút thuốc"]}</td>
@@ -454,25 +582,10 @@ document.getElementById("mergeBtn").addEventListener("click", async () => {
     return;
   }
 
-  // Chạy song song các ngày cho nhanh
-  const queries = selectedDates.map(d =>
-    query(
-      collection(db, "violations"),
-      where("coso", "==", COSO),
-      where("year", "==", d.year),
-      where("month", "==", d.month),
-      where("day", "==", d.day)
-    )
-  );
-
   try {
-    const snaps = await Promise.all(queries.map(q => getDocs(q)));
-
-    const allData = [];
-    snaps.forEach(snap => snap.forEach(doc => allData.push(doc.data())));
-
+    // Dùng lại cache của bảng chi tiết — không query lại Firebase
+    const allData = await getSelectedViolations();
     const merged = groupMultiDays(allData);
-
     renderMergeTable(merged);
   } catch (e) {
     console.error(e);

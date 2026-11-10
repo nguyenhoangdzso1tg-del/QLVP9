@@ -309,8 +309,8 @@ function showLop(khoa, khoaHoc) {
   });
 }
 
-function showSinhVien(khoa, khoaHoc, lop) {
-    selected.khoa = khoa;
+async function showSinhVien(khoa, khoaHoc, lop) {
+  selected.khoa = khoa;
   selected.khoaHoc = khoaHoc;
   selected.lop = lop;
   selected.sv = null;
@@ -320,21 +320,39 @@ function showSinhVien(khoa, khoaHoc, lop) {
   const content = document.getElementById("content");
   content.innerHTML = `
     <div class="col-span-3 mb-4 relative">
-  <input 
-    type="text"
-    id="searchSV"
-    placeholder="🔍  Tìm sinh viên..."
-    class="w-full p-2 border rounded"
-    oninput="autoCompleteSV('${khoa}', '${khoaHoc}', '${lop}')"
-  >
-
-  <div id="suggestBox"
-    class="absolute bg-white border w-full rounded shadow z-10 hidden">
-  </div>
-</div>
+      <input
+        type="text"
+        id="searchSV"
+        placeholder="🔍  Tìm sinh viên..."
+        class="w-full p-2 border rounded"
+        oninput="autoCompleteSV('${khoa}', '${khoaHoc}', '${lop}')"
+      >
+      <div id="suggestBox"
+        class="absolute bg-white border w-full rounded shadow z-10 hidden">
+      </div>
+    </div>
   `;
 
-  renderSinhVienList(data[khoa][khoaHoc][lop]);
+  const loading = document.createElement("div");
+  loading.id = "svLoading";
+  loading.className = "col-span-3 text-gray-500 p-2";
+  loading.innerText = "Đang tải sinh viên...";
+  content.appendChild(loading);
+
+  try {
+    // Chỉ tải đúng lớp đang mở (không tải toàn bộ 5.000 SV)
+    const { getStudentsByClass } = await import("./student-data.js");
+    const list = await getStudentsByClass(khoa, khoaHoc, lop);
+    data[khoa][khoaHoc][lop] = list;
+
+    const el = document.getElementById("svLoading");
+    if (el) el.remove();
+    renderSinhVienList(list);
+  } catch (e) {
+    console.error(e);
+    const el = document.getElementById("svLoading");
+    if (el) el.innerText = "Lỗi tải sinh viên: " + (e.message || e);
+  }
 }
 function renderSinhVienList(list) {
   const content = document.getElementById("content");
@@ -345,8 +363,8 @@ function renderSinhVienList(list) {
     btn.className = "bg-white p-4 rounded shadow hover:bg-blue-100 text-left";
 
     btn.innerHTML = `
-      <div class="font-semibold">${sv.tenSV}</div>
-      <div class="text-xs text-gray-500">${sv.maSV}</div>
+      <div class="font-semibold">${escHtml(sv.tenSV)}</div>
+      <div class="text-xs text-gray-500">${escHtml(sv.maSV)}</div>
     `;
 
     btn.onclick = () => {
@@ -365,7 +383,7 @@ function showViPham() {
 
   content.innerHTML = `
     <div class="bg-white p-6 rounded shadow col-span-3">
-      <p><b>Sinh viên:</b> ${selected.sv.tenSV} (${selected.sv.maSV})</p>
+      <p><b>Sinh viên:</b> ${escHtml(selected.sv.tenSV)} (${escHtml(selected.sv.maSV)})</p>
 
       <div class="mt-4">
         <label>
@@ -568,8 +586,8 @@ function autoCompleteSV(khoa, khoaHoc, lop) {
     div.className = "p-2 hover:bg-blue-100 cursor-pointer";
 
     div.innerHTML = `
-      <div class="font-medium">${sv.tenSV}</div>
-      <div class="text-xs text-gray-500">${sv.maSV}</div>
+      <div class="font-medium">${escHtml(sv.tenSV)}</div>
+      <div class="text-xs text-gray-500">${escHtml(sv.maSV)}</div>
     `;
 
     div.onclick = () => {
@@ -654,48 +672,18 @@ function matchesSearch(sv, keyword, extra) {
   return tokens.every(t => hay.includes(t));
 }
 
-function globalSearchSV() {
-  const keyword = document
-    .getElementById("globalSearch")
-    .value;
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[c]));
+}
 
+function selectGlobalStudent(sv) {
   const box = document.getElementById("globalResult");
-
-  if (!keyword.trim()) {
-    box.classList.add("hidden");
-    return;
-  }
-
-  const allSV = getAllSinhVien();
-
-  const matched = allSV.filter(sv =>
-    matchesSearch(sv, keyword, {
-      khoa: sv.khoa,
-      khoaHoc: sv.khoaHoc,
-      lop: sv.lop
-    })
-  );
-
-  box.innerHTML = "";
-
-  if (matched.length === 0) {
-    box.innerHTML = `<div class="p-2 text-gray-500">Không tìm thấy</div>`;
-    box.classList.remove("hidden");
-    return;
-  }
-
-  matched.forEach(sv => {
-    const div = document.createElement("div");
-    div.className = "p-2 hover:bg-blue-100 cursor-pointer";
-
-    div.innerHTML = `
-      <div class="font-medium">${sv.tenSV}</div>
-      <div class="text-xs text-gray-500">
-        ${sv.maSV} — ${sv.lop} — ${sv.khoaHoc}
-      </div>
-    `;
-
-    div.onclick = () => {
   box.classList.add("hidden");
   document.getElementById("globalSearch").value = "";
 
@@ -716,47 +704,132 @@ function globalSearchSV() {
 
   updateStatus();
   showViPham();
-};
+}
 
+function renderGlobalResults(matched, keyword) {
+  const box = document.getElementById("globalResult");
+  box.innerHTML = "";
+
+  if (matched.length === 0) {
+    box.innerHTML = `<div class="p-2 text-gray-500">Không tìm thấy theo tên/mã SV.</div>`;
+
+    // Tìm sâu: chỉ tải toàn bộ khi người dùng chủ động bấm (tránh tốn lượt đọc)
+    const deepBtn = document.createElement("button");
+    deepBtn.type = "button";
+    deepBtn.className = "block w-full text-left p-2 text-blue-600 hover:bg-blue-50 text-sm";
+    deepBtn.textContent = "Tìm trong toàn bộ danh sách (tốn ~5.000 lượt đọc)";
+    deepBtn.onclick = async () => {
+      if (!confirm(
+        "Tìm trong toàn bộ danh sách sẽ tải toàn bộ sinh viên về máy " +
+        "(khoảng 5.000 lượt đọc Firestore). Chỉ nên dùng khi thật sự cần.\n\nTiếp tục?"
+      )) return;
+
+      deepBtn.disabled = true;
+      deepBtn.textContent = "Đang tải toàn bộ...";
+
+      try {
+        const { loadAllStudents } = await import("./student-data.js");
+        const all = await loadAllStudents();
+        const allow = new Set(favKhoa(getCoso()));
+
+        const found = all.filter((sv) =>
+          allow.has(sv.khoa) &&
+          matchesSearch(sv, keyword, {
+            khoa: sv.khoa,
+            khoaHoc: sv.khoaHoc,
+            lop: sv.lop
+          })
+        ).slice(0, 50);
+
+        renderGlobalResults(found, keyword);
+      } catch (e) {
+        console.error(e);
+        box.innerHTML = `<div class="p-2 text-red-500">Lỗi tìm kiếm: ${escHtml(e.message || e)}</div>`;
+      }
+    };
+
+    box.appendChild(deepBtn);
+    box.classList.remove("hidden");
+    return;
+  }
+
+  matched.forEach((sv) => {
+    const div = document.createElement("div");
+    div.className = "p-2 hover:bg-blue-100 cursor-pointer";
+
+    div.innerHTML = `
+      <div class="font-medium">${escHtml(sv.tenSV)}</div>
+      <div class="text-xs text-gray-500">
+        ${escHtml(sv.maSV)} — ${escHtml(sv.lop)} — ${escHtml(sv.khoaHoc)}
+      </div>
+    `;
+
+    div.onclick = () => selectGlobalStudent(sv);
     box.appendChild(div);
   });
 
   box.classList.remove("hidden");
 }
 
+let globalSearchTimer = null;
+
+function globalSearchSV() {
+  clearTimeout(globalSearchTimer);
+  globalSearchTimer = setTimeout(runGlobalSearch, 350);
+}
+
+async function runGlobalSearch() {
+  const keyword = document.getElementById("globalSearch").value;
+  const box = document.getElementById("globalResult");
+
+  if (!keyword.trim()) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+
+  box.innerHTML = `<div class="p-2 text-gray-500">Đang tìm...</div>`;
+  box.classList.remove("hidden");
+
+  try {
+    // Query prefix + limit 20: chỉ đọc vài chục bản ghi thay vì cả 5.000
+    const { searchStudents } = await import("./student-data.js");
+    const allow = new Set(favKhoa(getCoso()));
+    const matched = (await searchStudents(keyword, 20))
+      .filter((sv) => allow.has(sv.khoa));
+
+    renderGlobalResults(matched, keyword);
+  } catch (e) {
+    console.error(e);
+    box.innerHTML = `<div class="p-2 text-red-500">Lỗi tìm kiếm: ${escHtml(e.message || e)}</div>`;
+  }
+}
+
 // START
 async function loadStudents() {
   try {
-    const { db } = await import("./firebase.js");
-    const { collection, getDocs } = await import(
-      "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js"
-    );
-
-    const snap = await getDocs(collection(db, "students"));
-    const tree = {};
+    // Chỉ đọc 1 document nhỏ "meta/studentTree" thay vì quét toàn bộ students.
+    const { getStudentTree } = await import("./student-data.js");
+    const tree = await getStudentTree();
 
     // Chỉ giữ các khoa thuộc cơ sở đã chọn
     const allow = new Set(favKhoa(getCoso()));
+    const dataTree = {};
 
-    snap.forEach(d => {
-      const s = d.data();
-      const khoa = s.khoa || "";
-      const khoaHoc = s.khoaHoc || "";
-      const lop = s.lop || "";
-      if (!khoa || !khoaHoc || !lop) return;
-      if (!allow.has(khoa)) return; // bỏ khoa của cơ sở khác
+    Object.keys(tree).forEach((khoa) => {
+      if (!allow.has(khoa)) return;
 
-      if (!tree[khoa]) tree[khoa] = {};
-      if (!tree[khoa][khoaHoc]) tree[khoa][khoaHoc] = {};
-      if (!tree[khoa][khoaHoc][lop]) tree[khoa][khoaHoc][lop] = [];
-
-      tree[khoa][khoaHoc][lop].push({
-        maSV: s.maSV || d.id,
-        tenSV: s.tenSV || ""
+      dataTree[khoa] = {};
+      Object.keys(tree[khoa] || {}).forEach((khoaHoc) => {
+        dataTree[khoa][khoaHoc] = {};
+        Object.keys(tree[khoa][khoaHoc] || {}).forEach((lop) => {
+          // Danh sách SV của lớp sẽ được tải khi người dùng bấm vào lớp.
+          dataTree[khoa][khoaHoc][lop] = [];
+        });
       });
     });
 
-    data = tree;
+    data = dataTree;
 
     // Dòng thông báo cơ sở đang dùng — chỉ ghi ngắn gọn
     const cosoLine = document.getElementById("cosoline");
@@ -784,31 +857,7 @@ loadStudents();
 </div>
 
 <style>
-/* ===== NÚT CÚP XẾP HẠNG ===== */
-.cup-btn {
-  position: fixed;
-  z-index: 60;
-  width: 36px;
-  height: 36px;
-  border-radius: 9999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  cursor: pointer;
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s ease;
-}
-.cup-btn:hover { transform: scale(1.08); }
-.cup-btn:active { transform: scale(0.94); }
-.cup-icon {
-  width: 18px;
-  height: 18px;
-  display: block;
-}
-/* ===== NÚT TRÒN: ĐỔI NGƯỜI NHẬP + QUẢN LÍ SV (giống cúp xếp hạng) ===== */
+/* ===== NÚT TRÒN: ĐỔI NGƯỜI NHẬP + QUẢN LÍ SV ===== */
 .icon-btn {
   position: fixed;
   z-index: 60;
@@ -837,8 +886,8 @@ loadStudents();
 
 /* ===== ĐIỆN THOẠI: nút 3 gạch ☰ góc phải, bấm mới hiện 3 icon ===== */
 @media (max-width: 767.98px) {
-  /* che 3 icon, chỉ hiện khi mở menu */
-  #doorBtn, #svBtn, #cupBtn {
+  /* che 2 icon, chỉ hiện khi mở menu */
+  #doorBtn, #svBtn {
     display: none;
     top: 50px;
     right: 10px;
@@ -863,23 +912,13 @@ loadStudents();
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     font-size: 14px;
   }
-  /* mở menu: 3 icon xếp dọc dưới nút ☰ (Đổi người nhập | Quản lí SV | Thành tích) */
+  /* mở menu: 2 icon xếp dọc dưới nút ☰ (Đổi người nhập | Quản lí SV) */
   body.mobile-nav-open #doorBtn { display: flex; }
   body.mobile-nav-open #svBtn   { display: flex; top: 94px; }
-  body.mobile-nav-open #cupBtn  { display: flex; top: 138px; }
 }
-/* Máy tính: 3 nút tròn dưới cùng sidebar (Cửa | Quản lí SV | Cúp) */
+/* Máy tính: 2 nút tròn dưới cùng sidebar (Cửa | Quản lí SV) */
 @media (min-width: 768px) {
   #menuBtn { display: none; }
-  .cup-btn {
-    top: auto;
-    right: auto;
-    left: 128px;
-    bottom: 14px;
-    transform: translateX(-50%);
-  }
-  .cup-btn:hover { transform: translateX(-50%) scale(1.08); }
-  .cup-btn:active { transform: translateX(-50%) scale(0.94); }
   #doorBtn, #svBtn {
     top: auto;
     right: auto;
@@ -887,22 +926,10 @@ loadStudents();
     transform: translateX(-50%);
   }
   #doorBtn { left: 44px; }  /* ngoài cùng bên trái */
-  #svBtn   { left: 86px; }  /* bên trái nút cúp */
+  #svBtn   { left: 86px; }  /* bên phải nút đổi người nhập */
   #doorBtn:hover, #svBtn:hover { transform: translateX(-50%) scale(1.08); }
   #doorBtn:active, #svBtn:active { transform: translateX(-50%) scale(0.94); }
 }
-.rank-tab {
-  flex: 1;
-  padding: 6px 0;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  border: 1px solid #cbd5e1;
-  color: #475569;
-  background: #fff;
-  cursor: pointer;
-}
-.rank-tab.active { background: #312e81; border-color: #312e81; color: #fff; }
 </style>
 
 <!-- NÚT MENU 3 GẠCH ☰ (chỉ điện thoại) -->
@@ -920,198 +947,7 @@ loadStudents();
   <i class="fa-solid fa-user-graduate"></i>
 </button>
 
-<!-- NÚT CÚP: xếp hạng người nhập (điện thoại: trong menu ☰ / máy tính: dưới sidebar) -->
-<button id="cupBtn" class="cup-btn" onclick="mobileNavOff(); openRanking()" title="Xếp hạng người nhập">
-  <svg class="cup-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M6.4 5.2C4.4 6 3.6 7.7 4.1 9.3c.4 1.4 2 2 3.4 1.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
-    <path d="M17.6 5.2c2 .8 2.8 2.5 2.3 4.1-.4 1.4-2 2-3.4 1.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
-    <path d="M6.2 3.6h11.6v3.9a5.8 5.8 0 0 1-11.6 0V3.6Z" fill="#fff"/>
-    <path d="M12 13.4v3.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-    <path d="M8.8 16.6h6.4" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-  </svg>
-</button>
 
-<!-- MODAL XẾP HẠNG NGƯỜI NHẬP -->
-<div id="rankingModal" class="hidden fixed inset-0 z-[70] flex items-center justify-center p-4">
-  <div class="absolute inset-0 bg-black/60" onclick="closeRanking()"></div>
-  <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
-    <div class="p-4 border-b flex items-center justify-between shrink-0">
-      <h3 class="text-lg font-bold text-gray-800">
-        <i class="fa-solid fa-trophy text-amber-500 mr-1"></i> Xếp hạng người nhập
-      </h3>
-      <button onclick="closeRanking()" class="text-gray-400 hover:text-gray-600 text-xl leading-none px-1">✕</button>
-    </div>
-    <div class="px-4 pt-3 flex gap-2 shrink-0">
-      <button id="rankWeek" class="rank-tab" onclick="setRankPeriod('week')">Tuần này</button>
-      <button id="rankMonth" class="rank-tab active" onclick="setRankPeriod('month')">Tháng này</button>
-    </div>
-    <p id="rankNote" class="px-4 pt-2 pb-1 text-xs text-gray-400 shrink-0 text-center">Hết tháng tự reset.</p>
-    <div id="rankList" class="overflow-y-auto p-4 space-y-2"></div>
-  </div>
-</div>
-
-<script type="module">
-import { db } from "./firebase.js";
-import { collection, getDocs } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
-
-let rankPeriod = "month"; // "week" | "month"
-let rankCache = null;
-let rankCacheAt = 0;
-let rankLoading = false;
-
-// Gộp tên không phân biệt HOA/thường, bỏ khoảng trắng thừa
-function normName(s) {
-  return String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
-}
-// Tách "Đi trễ, Hút thuốc, Mang dép" → ["Đi trễ", "Hút thuốc", "Mang dép"]
-function splitLoi(vipham) {
-  return String(vipham || "").split(",").map(s => s.trim()).filter(Boolean);
-}
-function fmtDate(d) {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return d.getFullYear() + "-" + m + "-" + day;
-}
-// Tuần tính từ thứ Hai → Chủ nhật
-function currentWeekRange() {
-  const now = new Date();
-  const diffToMonday = (now.getDay() + 6) % 7;
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-  return { start: fmtDate(start), end: fmtDate(end) };
-}
-
-async function loadRanking(force) {
-  const listEl = document.getElementById("rankList");
-  if (rankLoading) return;
-  if (!force && rankCache && Date.now() - rankCacheAt < 30000) {
-    renderRanking(rankCache);
-    return;
-  }
-  rankLoading = true;
-  listEl.innerHTML = '<div class="text-center text-gray-400 py-6">Đang tải...</div>';
-  try {
-    const snap = await getDocs(collection(db, "violations"));
-    const nowD = new Date();
-    const monthKey = nowD.getFullYear() + "-" + String(nowD.getMonth() + 1).padStart(2, "0");
-    const week = currentWeekRange();
-
-    const map = new Map();
-    snap.forEach(doc => {
-      const v = doc.data();
-      const ngay = String(v.ngay || "");
-      const inMonth = ngay.startsWith(monthKey);
-      const inWeek = ngay >= week.start && ngay <= week.end;
-      if (!inMonth && !inWeek) return;
-
-      const raw = String(v.nguoiNhap || "").trim();
-      if (!raw) return;
-
-      const key = normName(raw);
-      if (!map.has(key)) {
-        map.set(key, {
-          name: raw.replace(/\s+/g, " "),
-          countMonth: 0, countWeek: 0,   // số DÒNG đã nhập
-          loiMonth: 0, loiWeek: 0        // số LỖI bắt được
-        });
-      }
-      const item = map.get(key);
-      const lois = splitLoi(v.vipham);
-      if (inMonth) {
-        item.countMonth++;              // 1 bản ghi = 1 dòng
-        item.loiMonth += lois.length;   // "Đi trễ, Hút thuốc, Mang dép" = 3 lỗi
-      }
-      if (inWeek) {
-        item.countWeek++;
-        item.loiWeek += lois.length;
-      }
-    });
-
-    rankCache = [...map.values()];
-    rankCacheAt = Date.now();
-    renderRanking(rankCache);
-  } catch (e) {
-    console.error(e);
-    listEl.innerHTML = '<div class="text-center text-red-500 py-6">Không tải được dữ liệu. Kiểm tra mạng rồi thử lại.</div>';
-  } finally {
-    rankLoading = false;
-  }
-}
-
-function renderRanking(list) {
-  const el = document.getElementById("rankList");
-  const isMonth = rankPeriod === "month";
-  const countKey = isMonth ? "countMonth" : "countWeek";
-  const loiKey = isMonth ? "loiMonth" : "loiWeek";
-  document.getElementById("rankNote").textContent = isMonth
-    ? "Hết tháng tự reset."
-    : "Hết tuần tự reset.";
-
-  const sorted = list
-    .map(x => ({
-      name: x.name,
-      rows: x[countKey] || 0,   // số dòng nhập
-      loi: x[loiKey] || 0       // số lỗi bắt được
-    }))
-    .filter(x => x.rows > 0 || x.loi > 0)
-    .sort((a, b) => b.loi - a.loi || b.rows - a.rows);
-
-  el.innerHTML = "";
-  if (sorted.length === 0) {
-    el.innerHTML = '<div class="text-center text-gray-400 py-6">Chưa có dữ liệu trong kỳ này.</div>';
-    return;
-  }
-
-  const medals = ["🥇", "🥈", "🥉"];
-  sorted.forEach((item, i) => {
-    const row = document.createElement("div");
-    row.className = "flex items-center gap-3 p-2 rounded-lg bg-gray-50 border border-gray-100";
-
-    const badge = document.createElement("div");
-    badge.className =
-      "w-9 h-9 flex items-center justify-center rounded-full text-lg shrink-0 " +
-      (i === 0 ? "bg-amber-100" : i === 1 ? "bg-slate-200" : i === 2 ? "bg-orange-100" : "bg-gray-100 text-gray-400");
-    badge.textContent = medals[i] || String(i + 1);
-
-    const wrap = document.createElement("div");
-    wrap.className = "flex-1 min-w-0";
-    const name = document.createElement("div");
-    name.className = "font-semibold text-gray-800 truncate";
-    name.textContent = item.name;
-
-    // Số lỗi bắt được — nhỏ, màu xám nhạt (không ghi ra từng loại)
-    const sub = document.createElement("div");
-    sub.className = "text-xs text-gray-400";
-    sub.textContent = item.loi + " lỗi";
-    wrap.appendChild(name);
-    wrap.appendChild(sub);
-
-    // Số DÒNG đã nhập — lớn, đậm
-    const num = document.createElement("div");
-    num.className = "text-xl font-bold " + (i === 0 ? "text-amber-500" : "text-gray-600");
-    num.textContent = item.rows;
-
-    row.append(badge, wrap, num);
-    el.appendChild(row);
-  });
-}
-
-function setRankPeriod(p) {
-  rankPeriod = p;
-  document.getElementById("rankWeek").classList.toggle("active", p === "week");
-  document.getElementById("rankMonth").classList.toggle("active", p === "month");
-  loadRanking(false);
-}
-window.setRankPeriod = setRankPeriod;
-
-window.openRanking = () => {
-  document.getElementById("rankingModal").classList.remove("hidden");
-  loadRanking(false);
-};
-window.closeRanking = () => {
-  document.getElementById("rankingModal").classList.add("hidden");
-};
-</script>
 <!-- PWA: đăng ký service worker (cài app / mở nhanh) -->
 <script>
 if ('serviceWorker' in navigator) {

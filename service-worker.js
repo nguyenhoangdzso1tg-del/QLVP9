@@ -1,5 +1,5 @@
 /* Service Worker – Quản lí vi phạm (PWA): cache trang để mở nhanh + chạy khi không có mạng */
-const CACHE = "quan-li-vi-pham-v12";
+const CACHE = "quan-li-vi-pham-v14";
 
 const ASSETS = [
   "./",
@@ -11,12 +11,15 @@ const ASSETS = [
   "./calendar.html",
   "./quanly-sv.html",
   "./firebase.js",
+  "./auth.js",
   "./sendfirebase.js",
   "./list.js",
   "./script.js",
+  "./student-data.js",
   "./manifest.json",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./icon-512-maskable.png"
 ];
 
 self.addEventListener("install", (e) => {
