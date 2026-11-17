@@ -246,7 +246,8 @@ function aggregateOne(v) {
     lop: v.lop,
     khoa: v.khoa,
     khoaHoc: v.khoaHoc,
-    ngay: v.ngay
+    ngay: v.ngay,
+    nguoiNhap: v.nguoiNhap || ""
   };
 
   // mặc định = 0
@@ -275,7 +276,10 @@ function groupViolations(data) {
   const map = {};
 
   data.forEach(v => {
-    const key = v.maSV + "_" + v.ngay;
+    // Gộp theo: sinh viên + ngày + người nhập.
+    // Cùng người nhập → gộp sáng/chiều thành 1 dòng.
+    // Khác người nhập → tách thành nhiều dòng.
+    const key = v.maSV + "_" + v.ngay + "_" + (v.nguoiNhap || "");
 
     if (!map[key]) {
       map[key] = aggregateOne(v);
@@ -332,6 +336,7 @@ function renderTable(list) {
       <td>${(v.khac || []).length}</td>
       <td class="khac-cell">${khacNamesHtml(v.khac)}</td>
       <td><b>${v.tong}</b></td>
+      <td>${escapeHtml(v.nguoiNhap || "—")}</td>
     `;
 
     tbody.appendChild(tr);

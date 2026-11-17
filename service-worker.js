@@ -1,5 +1,5 @@
 /* Service Worker – Quản lí vi phạm (PWA): cache trang để mở nhanh + chạy khi không có mạng */
-const CACHE = "quan-li-vi-pham-v14";
+const CACHE = "quan-li-vi-pham-v17";
 
 const ASSETS = [
   "./",
@@ -55,17 +55,17 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Assert khác (CSS/JS/icon): cache trước – mạng sau
+  // CSS/JS/icon: ưu tiên mạng để HTML và JS luôn cùng phiên bản,
+  // mất mạng mới lấy bản đã cache.
   e.respondWith(
-    caches.match(e.request).then((hit) => {
-      if (hit) return hit;
-      return fetch(e.request).then((res) => {
+    fetch(e.request)
+      .then((res) => {
         if (res && res.status === 200 && res.type === "basic") {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy));
         }
         return res;
-      });
-    })
+      })
+      .catch(() => caches.match(e.request))
   );
 });

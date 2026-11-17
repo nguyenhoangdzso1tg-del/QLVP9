@@ -51,8 +51,6 @@ export async function sendViolations(violationList) {
 
         createdAt: serverTimestamp(),
 
-        
-
         // ✅ PHÂN LOẠI ĐÚNG (dùng cho lịch vi phạm)
         year: selectedDate.getFullYear(),
         month: selectedDate.getMonth() + 1,
